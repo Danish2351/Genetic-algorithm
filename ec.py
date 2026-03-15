@@ -26,6 +26,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+import csv
 
 # ── SETTINGS ──────────────────────────────────────────────────────────────────
 POP_SIZE     = 10     # number of individuals in population
@@ -209,9 +210,38 @@ def run_multiple(fitness_func, x_range, y_range, parent_sel, survival_sel):
     all_avg = np.array(all_avg)
     return all_bsf.mean(axis=0), all_avg.mean(axis=0)
 
+# ==============================================================================
+# 8. CSV GENERATION
+# ==============================================================================
+
+
+def save_csv(results, func_label):
+    """
+    Saves two CSV files per function:
+      - one for avg best-so-far per generation
+      - one for avg avg-fitness per generation
+    """
+    prefix = func_label.replace(" ", "_").replace(":", "").replace("/", "")
+
+    # --- CSV 1: avg best-so-far ---
+    with open(f"{prefix}_avg_best.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Generation"] + [r["label"] for r in results])
+        for g in range(N_GENS):
+            writer.writerow([g + 1] + [round(r["avg_bsf"][g], 4) for r in results])
+
+    # --- CSV 2: avg average-fitness ---
+    with open(f"{prefix}_avg_avg.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Generation"] + [r["label"] for r in results])
+        for g in range(N_GENS):
+            writer.writerow([g + 1] + [round(r["avg_avg"][g], 4) for r in results])
+
+    print(f"  CSV saved: {prefix}_avg_best.csv")
+    print(f"  CSV saved: {prefix}_avg_avg.csv")
 
 # ==============================================================================
-# 8. SELECTION LOOKUP + COMBO DEFINITIONS
+# 9. SELECTION LOOKUP + COMBO DEFINITIONS
 # ==============================================================================
 
 PARENT_SEL = {
@@ -236,7 +266,7 @@ COMBINATIONS = [
 
 
 # ==============================================================================
-# 9. RUN ALL 6 COMBINATIONS FOR ONE FUNCTION
+# 10. RUN ALL 6 COMBINATIONS FOR ONE FUNCTION
 # ==============================================================================
 
 def run_all(fitness_func, x_range, y_range, func_label):
@@ -264,7 +294,7 @@ def run_all(fitness_func, x_range, y_range, func_label):
 
 
 # ==============================================================================
-# 10. PLOTTING — live visualizations, nothing saved to disk
+# 11. PLOTTING — live visualizations, nothing saved to disk
 # ==============================================================================
 
 def plot_single_combo(res, func_label, combo_num, total):
@@ -326,8 +356,8 @@ def plot_combined(results, func_label):
         ax2.plot(gens, res["avg_avg"], color=color, linewidth=2, label=res["label"])
 
     for ax, title in [
-        (ax1, "Best fit of all combinations"),
         (ax2, "Average fit of all combinations"),
+        (ax1, "Best fit of all combinations"),
     ]:
         ax.set_title(title, fontsize=11)
         ax.set_xlabel("generation", fontsize=9)
@@ -342,7 +372,7 @@ def plot_combined(results, func_label):
 
 
 # ==============================================================================
-# 11. MAIN
+# 12. MAIN
 # ==============================================================================
 
 if __name__ == "__main__":
@@ -355,8 +385,10 @@ if __name__ == "__main__":
         y_range      = (-5, 5),
         func_label   = "Function 1: f(x,y) = x^2 + y^2",
     )
+    save_csv(results1, "Function 1 f(x,y) = x^2 + y^2")  
     plot_all_combos_separately(results1, "Function 1: f(x,y) = x^2 + y^2")  # 6 separate windows
     plot_combined(results1,             "Function 1: f(x,y) = x^2 + y^2")  # 1 combined window
+    
 
     # ── FUNCTION 2: Rosenbrock ─────────────────────────────────────────────
     results2 = run_all(
@@ -365,6 +397,7 @@ if __name__ == "__main__":
         y_range      = (-1, 3),
         func_label   = "Function 2: Rosenbrock",
     )
+    save_csv(results2, "Function 2 Rosenbrock")   
     plot_all_combos_separately(results2, "Function 2: Rosenbrock")  # 6 separate windows
     plot_combined(results2,             "Function 2: Rosenbrock")  # 1 combined window
-
+             

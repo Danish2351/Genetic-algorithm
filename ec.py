@@ -24,62 +24,78 @@
 ==============================================================================
 """
 
+import csv
 import numpy as np
 import matplotlib.pyplot as plt
-import csv
+import os
 
 # ── SETTINGS ──────────────────────────────────────────────────────────────────
-POP_SIZE     = 10     # number of individuals in population
-N_GENS       = 40     # number of generations per run
-N_RUNS       = 10     # number of independent runs to average over
-MUT_PROB     = 0.5    # probability of mutating each gene
-MUT_STEP     = 0.25   # mutation step size (plus/minus)
-RANDOM_SEED  = 42     # for reproducibility
+POP_SIZE    = 10      # individuals per generation
+N_GENS      = 40      # generations per run
+N_RUNS      = 10      # independent runs per combination
+MUT_PROB    = 0.5     # per-gene mutation probability
+MUT_STEP    = 0.25    # mutation step ± this value
+SEED        = 42      # reproducibility
 
-# Colors for each of the 6 combinations in combined plots
+# Colors for the 6 combinations in the final combined chart
 COMBO_COLORS = ["#D4550F", "#C428C4", "#8B8B00", "#2B5FC4", "#3DA63D", "#7B3DC4"]
+
+# Output folders (created automatically)
+CSV_DIR  = "csv_output"
+PLOT_DIR = "plot_output"
+os.makedirs(CSV_DIR,  exist_ok=True)
+os.makedirs(PLOT_DIR, exist_ok=True)
 
 
 # ==============================================================================
-# 1. FITNESS FUNCTIONS  — we MAXIMIZE both
+# SECTION 1 — FITNESS FUNCTIONS  (we MAXIMIZE both)
 # ==============================================================================
 
 def function1(x, y):
-    """ f(x,y) = x^2 + y^2  |  range: -5 < x,y < 5  |  max at corners (~50) """
+    """
+    f(x, y) = x² + y²
+    Range : -5 < x, y < 5
+    Max   : at corners ≈ 50  (EA should push individuals toward ±5)
+    """
     return x**2 + y**2
 
 
 def function2(x, y):
-    """ Rosenbrock: f(x,y) = 100*(x^2 - y)^2 + (1-x)^2  |  range: -2<x<2, -1<y<3 """
+    """
+    Rosenbrock: f(x, y) = 100*(x² - y)² + (1 - x)²
+    Range : -2 < x < 2,  -1 < y < 3
+    We MAXIMIZE it — EA seeks high-value regions near the corners.
+    """
     return 100 * (x**2 - y)**2 + (1 - x)**2
 
 
 # ==============================================================================
-# 2. POPULATION
+# SECTION 2 — POPULATION
 # ==============================================================================
 
-def init_population(pop_size, x_range, y_range):
-    """ Initialize random (x, y) individuals within bounds. """
-    x = np.random.uniform(x_range[0], x_range[1], pop_size)
-    y = np.random.uniform(y_range[0], y_range[1], pop_size)
-    return np.column_stack((x, y))
+def init_population(x_range, y_range):
+    """Create POP_SIZE random [x, y] individuals within the given bounds."""
+    x = np.random.uniform(x_range[0], x_range[1], POP_SIZE)
+    y = np.random.uniform(y_range[0], y_range[1], POP_SIZE)
+    return np.column_stack((x, y))   # shape: (POP_SIZE, 2)
 
 
 def evaluate(population, fitness_func):
-    """ Compute fitness for all individuals. Higher = better (MAXIMIZE). """
+    """Return fitness array for every individual. Higher = better (MAXIMIZE)."""
     return np.array([fitness_func(ind[0], ind[1]) for ind in population])
 
 
 # ==============================================================================
-# 3. PARENT SELECTION  — higher fitness = more likely to be selected
+# SECTION 3 — PARENT SELECTION  (all favour higher fitness)
 # ==============================================================================
 
 def fps(fitness, n):
     """
     Fitness Proportional Selection (Roulette Wheel).
-    Each individual's selection chance is proportional to its fitness value.
+    Selection probability ∝ fitness value.
+    Shift values so all are positive before normalising.
     """
-    shifted = fitness - fitness.min() + 1e-9    # shift so all values > 0
+    shifted = fitness - fitness.min() + 1e-9
     probs   = shifted / shifted.sum()
     return np.random.choice(len(fitness), size=n, replace=True, p=probs)
 
@@ -87,10 +103,10 @@ def fps(fitness, n):
 def rbs(fitness, n):
     """
     Rank-Based Selection.
-    Assign rank 1..N (N = best), select by rank probability.
-    Avoids domination by very high fitness individuals (unlike FPS).
+    Sort by fitness, assign rank 1 (worst) … N (best), select by rank probability.
+    Reduces domination by a single very-fit individual.
     """
-    ranks = np.argsort(np.argsort(fitness)) + 1  # rank 1=worst, N=best
+    ranks = np.argsort(np.argsort(fitness)) + 1   # 1 = worst, N = best
     probs = ranks / ranks.sum()
     return np.random.choice(len(fitness), size=n, replace=True, p=probs)
 
@@ -98,27 +114,32 @@ def rbs(fitness, n):
 def binary_tournament(fitness, n):
     """
     Binary Tournament Selection.
-    Pick 2 random individuals, higher fitness wins. Repeat n times.
+    Pick 2 random individuals; the one with HIGHER fitness wins.
+    Repeat n times to obtain n parent indices.
     """
     winners = []
     for _ in range(n):
         i, j = np.random.choice(len(fitness), size=2, replace=False)
-        winners.append(i if fitness[i] > fitness[j] else j)  # MAXIMIZE
+        winners.append(i if fitness[i] > fitness[j] else j)   # MAXIMIZE
     return np.array(winners)
 
 
 # ==============================================================================
-# 4. CROSSOVER + MUTATION
+# SECTION 4 — CROSSOVER + MUTATION
 # ==============================================================================
 
 def crossover(p1, p2):
-    """ Arithmetic crossover: child = alpha*p1 + (1-alpha)*p2, alpha random in [0,1]. """
+    """Arithmetic crossover: child = α·p1 + (1−α)·p2  where α ~ Uniform[0,1]."""
     a = np.random.uniform(0, 1)
     return a * p1 + (1 - a) * p2
 
 
 def mutate(individual, x_range, y_range):
-    """ Each gene mutated with MUT_PROB by +/- MUT_STEP, clamped to bounds. """
+    """
+    Each gene is mutated independently with probability MUT_PROB.
+    Mutation adds a random value in [−MUT_STEP, +MUT_STEP].
+    Result is clamped back inside the valid search bounds.
+    """
     child = individual.copy()
     if np.random.rand() < MUT_PROB:
         child[0] += np.random.uniform(-MUT_STEP, MUT_STEP)
@@ -130,43 +151,53 @@ def mutate(individual, x_range, y_range):
 
 
 # ==============================================================================
-# 5. SURVIVAL SELECTION  — pick best POP_SIZE from combined pool of 20
+# SECTION 5 — SURVIVAL SELECTION
 # ==============================================================================
 
 def truncation_survival(pop, fit, n):
-    """ Keep the n individuals with HIGHEST fitness (deterministic top-n). """
-    best_idx = np.argsort(fit)[::-1][:n]   # descending sort, take top n
+    """
+    Truncation: keep the n individuals with the HIGHEST fitness.
+    Deterministic — always picks the same top-n from the pool.
+    """
+    best_idx = np.argsort(fit)[::-1][:n]   # descending order, take first n
     return pop[best_idx], fit[best_idx]
 
 
 def bt_survival(pop, fit, n):
-    """ Binary tournament survival: run n tournaments on the combined pool. """
+    """
+    Binary Tournament Survival: run n tournaments on the combined pool.
+    Stochastic — high-fitness individuals are likely but not guaranteed to survive.
+    """
     idx = binary_tournament(fit, n)
     return pop[idx], fit[idx]
 
 
 # ==============================================================================
-# 6. ONE COMPLETE EA RUN (40 generations)
+# SECTION 6 — ONE COMPLETE EA RUN  (returns per-generation stats)
 # ==============================================================================
 
 def run_ea(fitness_func, x_range, y_range, parent_sel, survival_sel):
     """
-    Runs the full EA for N_GENS generations.
-    Returns:
-        bsf_list : best-so-far fitness per generation  (never decreases)
-        avg_list : average population fitness per generation
+    Executes the EA for exactly N_GENS generations.
+
+    Returns two lists of length N_GENS:
+        bsf_per_gen : Best-So-Far fitness at each generation
+                      (monotonically non-decreasing — it never gets worse)
+        avg_per_gen : Mean fitness of the surviving population at each generation
     """
-    pop     = init_population(POP_SIZE, x_range, y_range)
+    pop     = init_population(x_range, y_range)
     fitness = evaluate(pop, fitness_func)
-    bsf     = fitness.max()
-    bsf_list, avg_list = [], []
+    bsf     = fitness.max()          # global best seen so far
+
+    bsf_per_gen = []
+    avg_per_gen = []
 
     for _ in range(N_GENS):
 
-        # Step 1 — select parents
+        # ── Step 1: parent selection ───────────────────────────────────────
         p_idx = parent_sel(fitness, POP_SIZE)
 
-        # Step 2 — create offspring via crossover + mutation
+        # ── Step 2: crossover + mutation → POP_SIZE offspring ─────────────
         offspring = []
         for i in range(0, POP_SIZE, 2):
             p1 = pop[p_idx[i]]
@@ -175,73 +206,104 @@ def run_ea(fitness_func, x_range, y_range, parent_sel, survival_sel):
             offspring.append(mutate(crossover(p2, p1), x_range, y_range))
         offspring = np.array(offspring[:POP_SIZE])
 
-        # Step 3 — combine parents + offspring (20 individuals total)
+        # ── Step 3: combine parents + offspring  (20 individuals) ─────────
         combined_pop = np.vstack([pop, offspring])
         combined_fit = evaluate(combined_pop, fitness_func)
 
-        # Step 4 — survival selection, keep best POP_SIZE
+        # ── Step 4: survival selection → keep best POP_SIZE ───────────────
         pop, fitness = survival_sel(combined_pop, combined_fit, POP_SIZE)
 
-        # Step 5 — record stats for this generation
+        # ── Step 5: record generation stats ───────────────────────────────
         bsf = max(bsf, fitness.max())   # BSF never decreases
-        bsf_list.append(bsf)
-        avg_list.append(fitness.mean())
+        bsf_per_gen.append(bsf)
+        avg_per_gen.append(fitness.mean())
 
-    return bsf_list, avg_list
+    return bsf_per_gen, avg_per_gen
 
 
 # ==============================================================================
-# 7. REPEAT N_RUNS TIMES AND AVERAGE
+# SECTION 7 — 10 INDEPENDENT RUNS  (stores every run separately)
 # ==============================================================================
 
-def run_multiple(fitness_func, x_range, y_range, parent_sel, survival_sel):
+def run_10_times(fitness_func, x_range, y_range, parent_sel, survival_sel):
     """
-    Run the EA N_RUNS times (each with a fresh random population).
+    Runs the EA N_RUNS (=10) times, each starting from a fresh random population.
+
     Returns:
-        avg_bsf : average best-so-far per generation across all runs
-        avg_avg : average avg-fitness per generation across all runs
+        all_bsf : 2D array  shape (N_RUNS, N_GENS)
+                  all_bsf[r][g] = Best-So-Far of run r at generation g
+        all_avg : 2D array  shape (N_RUNS, N_GENS)
+                  all_avg[r][g] = Avg fitness of run r at generation g
     """
     all_bsf, all_avg = [], []
-    for _ in range(N_RUNS):
-        bsf, avg = run_ea(fitness_func, x_range, y_range, parent_sel, survival_sel)
-        all_bsf.append(bsf)
-        all_avg.append(avg)
-    all_bsf = np.array(all_bsf)  # shape: (N_RUNS, N_GENS)
-    all_avg = np.array(all_avg)
-    return all_bsf.mean(axis=0), all_avg.mean(axis=0)
+
+    for run in range(N_RUNS):
+        bsf_list, avg_list = run_ea(
+            fitness_func, x_range, y_range, parent_sel, survival_sel
+        )
+        all_bsf.append(bsf_list)
+        all_avg.append(avg_list)
+        print(f"    Run {run + 1:2d}/10  done  |  "
+              f"final BSF = {bsf_list[-1]:.2f}  |  "
+              f"final avg = {avg_list[-1]:.2f}")
+
+    return np.array(all_bsf), np.array(all_avg)   # shapes: (10, 40)
+
 
 # ==============================================================================
-# 8. CSV GENERATION
+# SECTION 8 — CSV EXPORT
 # ==============================================================================
 
-
-def save_csv(results, func_label):
+def save_csv(all_bsf, all_avg, combo_label, func_label):
     """
-    Saves two CSV files per function:
-      - one for avg best-so-far per generation
-      - one for avg avg-fitness per generation
+    Saves two CSV files for one combination — one for BSF, one for avg fitness.
+
+    CSV format (matches template table exactly):
+        Column 0 : Generation  (1, 2, … 40)
+        Columns 1-10 : Run 1 … Run 10  (individual run values)
+        Column 11 : Average  (mean across the 10 runs for that generation)
+
+    Files are named: <func>_<combo>_best_fit.csv
+                     <func>_<combo>_avg_fit.csv
     """
-    prefix = func_label.replace(" ", "_").replace(":", "").replace("/", "")
+    # Build safe filename prefix
+    safe_combo = combo_label.replace(" ", "_").replace("+", "").replace("__", "_")
+    safe_func  = func_label.replace(" ", "_").replace(":", "").replace("/", "")
+    prefix     = f"{CSV_DIR}/{safe_func}_{safe_combo}"
 
-    # --- CSV 1: avg best-so-far ---
-    with open(f"{prefix}_avg_best.csv", "w", newline="") as f:
+    avg_bsf = all_bsf.mean(axis=0)   # shape (N_GENS,)
+    avg_avg = all_avg.mean(axis=0)
+
+    headers = ["Generation"] + [f"Run {r+1}" for r in range(N_RUNS)] + ["Average"]
+
+    # ── CSV 1: Best-So-Far ────────────────────────────────────────────────
+    with open(f"{prefix}_best_fit.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Generation"] + [r["label"] for r in results])
+        writer.writerow(headers)
         for g in range(N_GENS):
-            writer.writerow([g + 1] + [round(r["avg_bsf"][g], 4) for r in results])
+            row = [g + 1]
+            row += [round(all_bsf[r][g], 4) for r in range(N_RUNS)]
+            row += [round(avg_bsf[g], 4)]
+            writer.writerow(row)
 
-    # --- CSV 2: avg average-fitness ---
-    with open(f"{prefix}_avg_avg.csv", "w", newline="") as f:
+    # ── CSV 2: Average Fitness ────────────────────────────────────────────
+    with open(f"{prefix}_avg_fit.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Generation"] + [r["label"] for r in results])
+        writer.writerow(headers)
         for g in range(N_GENS):
-            writer.writerow([g + 1] + [round(r["avg_avg"][g], 4) for r in results])
+            row = [g + 1]
+            row += [round(all_avg[r][g], 4) for r in range(N_RUNS)]
+            row += [round(avg_avg[g], 4)]
+            writer.writerow(row)
 
-    print(f"  CSV saved: {prefix}_avg_best.csv")
-    print(f"  CSV saved: {prefix}_avg_avg.csv")
+    print(f"  CSV saved: {prefix}_best_fit.csv")
+    print(f"  CSV saved: {prefix}_avg_fit.csv")
+
+    return avg_bsf, avg_avg
+
 
 # ==============================================================================
-# 9. SELECTION LOOKUP + COMBO DEFINITIONS
+# SECTION 9 — SELECTION MAPS + COMBINATION LIST
 # ==============================================================================
 
 PARENT_SEL = {
@@ -254,7 +316,6 @@ SURVIVAL_SEL = {
     "BT":         bt_survival,
 }
 
-# All 6 required combinations from the assignment
 COMBINATIONS = [
     ("FPS", "Truncation"),
     ("RBS", "Truncation"),
@@ -266,98 +327,64 @@ COMBINATIONS = [
 
 
 # ==============================================================================
-# 10. RUN ALL 6 COMBINATIONS FOR ONE FUNCTION
+# SECTION 10 — PLOTTING
 # ==============================================================================
 
-def run_all(fitness_func, x_range, y_range, func_label):
-    """
-    Run all 6 combos and collect results.
-    Returns list of dicts, one per combo.
-    """
-    results = []
-    print(f"\n{'='*50}")
-    print(f"  {func_label}")
-    print(f"{'='*50}")
-
-    for ps_name, ss_name in COMBINATIONS:
-        label = f"{ps_name} + {ss_name}"
-        print(f"  Running: {label} ...")
-        avg_bsf, avg_avg = run_multiple(
-            fitness_func, x_range, y_range,
-            PARENT_SEL[ps_name],
-            SURVIVAL_SEL[ss_name],
-        )
-        results.append({"label": label, "avg_bsf": avg_bsf, "avg_avg": avg_avg})
-
-    print("  Done.\n")
-    return results
-
-
-# ==============================================================================
-# 11. PLOTTING — live visualizations, nothing saved to disk
-# ==============================================================================
-
-def plot_single_combo(res, func_label, combo_num, total):
+def plot_single_combo(avg_bsf, avg_avg, combo_label, func_label, idx, total):
     """
     One separate window per combination.
-    Shows avg best-so-far (blue) and avg avg-fitness (orange) on the same axes.
-    The shaded region between the two lines shows the gap clearly.
+    Blue  = Average Best-So-Far across 10 runs
+    Orange = Average Avg-Fitness across 10 runs
+    Shaded gap between the two lines shows how much the best exceeds the average.
     """
     gens = range(1, N_GENS + 1)
     fig, ax = plt.subplots(figsize=(9, 5))
     fig.suptitle(
-        f"{func_label}  |  Combination {combo_num}/{total}\n"
-        f"({N_RUNS} runs x {N_GENS} generations)",
+        f"{func_label}  |  Combination {idx}/{total}",
         fontsize=12, fontweight="bold"
     )
 
-    ax.plot(gens, res["avg_bsf"], color="#2B5FC4", linewidth=2, label="avg best")
-    ax.plot(gens, res["avg_avg"], color="#E87722", linewidth=2, label="avg avg")
-    # Shade the gap between best and average so the difference is visible
-    ax.fill_between(gens, res["avg_avg"], res["avg_bsf"],
-                    alpha=0.10, color="#2B5FC4")
+    ax.plot(gens, avg_bsf, color="#2B5FC4", linewidth=2, label="average best")
+    ax.plot(gens, avg_avg, color="#E87722", linewidth=2, label="average avg")
+    ax.fill_between(gens, avg_avg, avg_bsf, alpha=0.10, color="#2B5FC4")
 
-    ax.set_title(res["label"], fontsize=12)
-    ax.set_xlabel("generation", fontsize=10)
-    ax.set_ylabel("fitness value", fontsize=10)
+    ax.set_title(combo_label, fontsize=12)
+    ax.set_xlabel("generations", fontsize=10)
+    ax.set_ylabel("fitness values", fontsize=10)
     ax.legend(fontsize=10)
     ax.grid(True, linestyle="--", alpha=0.4)
     ax.set_xlim(1, N_GENS)
     ax.set_ylim(bottom=0)
-
     plt.tight_layout()
+
+    # Save individual combo plot before displaying
+    safe_combo = combo_label.replace(" ", "_").replace("+", "").replace("__", "_")
+    safe_func  = func_label.replace(" ", "_").replace(":", "").replace("/", "")
+    fname = f"{PLOT_DIR}/{safe_func}_{safe_combo}.png"
+    plt.savefig(fname, dpi=150, bbox_inches="tight")
+    print(f"  Plot saved: {fname}")
+
     plt.show()
 
 
-def plot_all_combos_separately(results, func_label):
+def plot_combined(all_results, func_label):
     """
-    Loop over all 6 results and open each one in its own separate window.
-    Close one window to see the next.
-    """
-    for i, res in enumerate(results, start=1):
-        plot_single_combo(res, func_label, combo_num=i, total=len(results))
-
-
-def plot_combined(results, func_label):
-    """
-    One figure, two side-by-side subplots — all 6 combos on each.
-    Left  : avg best-so-far for every combination
-    Right : avg average-fitness for every combination
-    Matches the 'all combinations' charts in the assignment template.
+    Two side-by-side combined charts (all 6 combinations on each).
+    Left  : Average Best-So-Far for all 6 combos — matches template slide 8 / 15
+    Right : Average Avg-Fitness  for all 6 combos
     """
     gens = range(1, N_GENS + 1)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
-    fig.suptitle(f"{func_label} — All Combinations",
-                 fontsize=13, fontweight="bold")
+    fig.suptitle(f"{func_label} — All Combinations", fontsize=13, fontweight="bold")
 
-    for i, res in enumerate(results):
+    for i, res in enumerate(all_results):
         color = COMBO_COLORS[i]
         ax1.plot(gens, res["avg_bsf"], color=color, linewidth=2, label=res["label"])
         ax2.plot(gens, res["avg_avg"], color=color, linewidth=2, label=res["label"])
 
     for ax, title in [
-        (ax2, "Average fit of all combinations"),
         (ax1, "Best fit of all combinations"),
+        (ax2, "Average fit of all combinations"),
     ]:
         ax.set_title(title, fontsize=11)
         ax.set_xlabel("generation", fontsize=9)
@@ -368,36 +395,85 @@ def plot_combined(results, func_label):
         ax.set_ylim(bottom=0)
 
     plt.tight_layout()
+
+    # Save combined chart before displaying
+    safe_func = func_label.replace(" ", "_").replace(":", "").replace("/", "")
+    fname = f"{PLOT_DIR}/{safe_func}_combined.png"
+    plt.savefig(fname, dpi=150, bbox_inches="tight")
+    print(f"  Plot saved: {fname}")
+
     plt.show()
 
 
 # ==============================================================================
-# 12. MAIN
+# SECTION 11 — MASTER RUNNER (one function, all 6 combinations)
+# ==============================================================================
+
+def run_function(fitness_func, x_range, y_range, func_label):
+    """
+    For a single fitness function:
+      1. Loop over all 6 combinations
+      2. Run 10 independent EA runs each
+      3. Save two CSV files per combination
+      4. Show individual plot per combination
+      5. Collect results for the final combined chart
+    """
+    all_results = []   # will hold avg_bsf + avg_avg for every combo
+
+    print(f"\n{'='*60}")
+    print(f"  {func_label}")
+    print(f"{'='*60}")
+
+    for idx, (ps_name, ss_name) in enumerate(COMBINATIONS, start=1):
+        combo_label = f"{ps_name} + {ss_name}"
+        print(f"\n  [{idx}/6]  {combo_label}")
+
+        # ── Run 10 times, get per-run per-generation data ──────────────────
+        all_bsf, all_avg = run_10_times(
+            fitness_func, x_range, y_range,
+            PARENT_SEL[ps_name],
+            SURVIVAL_SEL[ss_name],
+        )
+
+        # ── Save CSVs, also returns column-wise averages ───────────────────
+        avg_bsf, avg_avg = save_csv(all_bsf, all_avg, combo_label, func_label)
+
+        # ── Plot this combination in its own window ────────────────────────
+        plot_single_combo(avg_bsf, avg_avg, combo_label, func_label,
+                          idx, len(COMBINATIONS))
+
+        # ── Store for combined chart later ────────────────────────────────
+        all_results.append({
+            "label":   combo_label,
+            "avg_bsf": avg_bsf,
+            "avg_avg": avg_avg,
+        })
+
+    # ── Final combined chart (all 6 on one figure) ────────────────────────
+    plot_combined(all_results, func_label)
+
+
+# ==============================================================================
+# SECTION 12 — MAIN
 # ==============================================================================
 
 if __name__ == "__main__":
-    np.random.seed(RANDOM_SEED)
+    np.random.seed(SEED)
 
-    # ── FUNCTION 1: f(x,y) = x^2 + y^2 ───────────────────────────────────
-    results1 = run_all(
+    # ── FUNCTION 1 ────────────────────────────────────────────────────────
+    run_function(
         fitness_func = function1,
         x_range      = (-5, 5),
         y_range      = (-5, 5),
-        func_label   = "Function 1: f(x,y) = x^2 + y^2",
+        func_label   = "Function 1  f(x,y) = x^2 + y^2",
     )
-    save_csv(results1, "Function 1 f(x,y) = x^2 + y^2")  
-    plot_all_combos_separately(results1, "Function 1: f(x,y) = x^2 + y^2")  # 6 separate windows
-    plot_combined(results1,             "Function 1: f(x,y) = x^2 + y^2")  # 1 combined window
-    
 
-    # ── FUNCTION 2: Rosenbrock ─────────────────────────────────────────────
-    results2 = run_all(
+    # ── FUNCTION 2 ────────────────────────────────────────────────────────
+    run_function(
         fitness_func = function2,
         x_range      = (-2, 2),
         y_range      = (-1, 3),
-        func_label   = "Function 2: Rosenbrock",
+        func_label   = "Function 2  Rosenbrock",
     )
-    save_csv(results2, "Function 2 Rosenbrock")   
-    plot_all_combos_separately(results2, "Function 2: Rosenbrock")  # 6 separate windows
-    plot_combined(results2,             "Function 2: Rosenbrock")  # 1 combined window
-             
+
+    print(f"\nAll CSV files saved in: {CSV_DIR}/")

@@ -1,4 +1,4 @@
 .venv
 env
-csv_output/*.csv
-plot_output/*.png
+*.csv
+*.png

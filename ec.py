@@ -20,7 +20,6 @@
     - 6 individual charts (one per combo): avg best + avg avg on same plot
     - 1 combined chart: avg best-so-far for all 6 combos
     - 1 combined chart: avg average-fitness for all 6 combos
-
 ==============================================================================
 """
 
@@ -259,7 +258,7 @@ def save_csv(all_bsf, all_avg, combo_label, func_label):
     Saves two CSV files for one combination — one for BSF, one for avg fitness.
 
     CSV format (matches template table exactly):
-        Column 0 : Generation  (1, 2, … 40)
+        Column 0 : Generation  (1, 5, 10, 15, 20, 25, 30, 35, 40)
         Columns 1-10 : Run 1 … Run 10  (individual run values)
         Column 11 : Average  (mean across the 10 runs for that generation)
 
@@ -276,12 +275,17 @@ def save_csv(all_bsf, all_avg, combo_label, func_label):
 
     headers = ["Generation"] + [f"Run {r+1}" for r in range(N_RUNS)] + ["Average"]
 
+    # ── Only write rows for: gen 1, 5, 10, 15, 20, 25, 30, 35, 40 ────────
+    # g is 0-indexed internally, so generation 1 = index 0, gen 5 = index 4, etc.
+    gen_checkpoints = [1, 5, 10, 15, 20, 25, 30, 35, 40]
+
     # ── CSV 1: Best-So-Far ────────────────────────────────────────────────
     with open(f"{prefix}_best_fit.csv", "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(headers)
-        for g in range(N_GENS):
-            row = [g + 1]
+        for gen in gen_checkpoints:
+            g = gen - 1   # convert generation number to 0-based index
+            row = [gen]
             row += [round(all_bsf[r][g], 4) for r in range(N_RUNS)]
             row += [round(avg_bsf[g], 4)]
             writer.writerow(row)
@@ -290,8 +294,9 @@ def save_csv(all_bsf, all_avg, combo_label, func_label):
     with open(f"{prefix}_avg_fit.csv", "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(headers)
-        for g in range(N_GENS):
-            row = [g + 1]
+        for gen in gen_checkpoints:
+            g = gen - 1   # convert generation number to 0-based index
+            row = [gen]
             row += [round(all_avg[r][g], 4) for r in range(N_RUNS)]
             row += [round(avg_avg[g], 4)]
             writer.writerow(row)

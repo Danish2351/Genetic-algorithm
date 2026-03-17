@@ -1,4 +1,3 @@
-#%%
 """
 ==============================================================================
   EVOLUTIONARY ALGORITHM - ASSIGNMENT 1
@@ -30,7 +29,7 @@ import os
 
 # ── SETTINGS ──────────────────────────────────────────────────────────────────
 POP_SIZE    = 10      # individuals per generation
-N_GENS      = 40      # generations per run
+N_GENS      = 100      # generations per run
 N_RUNS      = 10      # independent runs per combination
 MUT_PROB    = 0.5     # per-gene mutation probability
 MUT_STEP    = 0.25    # mutation step ± this value
